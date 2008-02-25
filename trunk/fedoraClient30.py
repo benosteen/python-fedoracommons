@@ -30,7 +30,7 @@ class FedoraClient(object):
         
         self.ri = Risearch(server=server)
         
-        if version != "3.0" or version != "3":
+        if not (version == "3.0"):
             raise "This library only provides an interface to a Fedora 3.0 repository with REST API enabled"
         
         if use_UUID:
