@@ -42,9 +42,6 @@ from mimeTypes import *
 from xml.dom import minidom
 from xml.dom import Node
 
-# Metadata handlers
-from foxml import *
-
 class FedoraClient(object):
     def __init__(self, server='http://localhost:8080/fedora', username='fedoraAdmin', password='fedoraAdmin', version="3.0", use_UUID=False):
         self.server = server
