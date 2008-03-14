@@ -24,9 +24,15 @@ __version__ = '0.1'
 from xml.dom import minidom
 from xml.dom import Node
 
-from archive.lib.relsext_mapping import *
+import rdflib
+from rdflib.Graph import ConjunctiveGraph as cg
+from rdflib import Namespace, Literal
+from rdflib import URIRef
 
-from Ft.Xml.Xslt import Transform
+# To directly decode the N-Triples from Trippi
+from rdflib.syntax.parsers.ntriples import NTriplesParser
+
+from datetime import datetime
 
 import urllib
 import string
@@ -45,9 +51,6 @@ class Risearch(object):
         # This will match a single triple response in N-Triple format
         # self.triple_pattern = re.compile('^<.*?> <.*?> <.*?> .\n')
         
-        m = Predicates()
-        self.rev_relsext = m.getReverseDictionary()
-
     def getSearchResultSet(self, query, desiredformat='Sparql', limit='10'):
         # Get Tuples from the risearch servlet running on the Fedora
         # server
@@ -181,6 +184,14 @@ class Risearch(object):
         # triplestore is accurate"""
         return self.doesTripleExist(query='<info:fedora/'+pid+'> * *')
         
+    def getContentType(self, pid):
+        query = "select $object from <#ri> where <info:fedora/%s> <info:fedora/fedora-system:def/relations-external#isMemberOf> $object" % (pid)
+        linelist = self.getTuples(query, format='csv').split("\n")
+        if len(linelist) == 3:
+            return linelist[1].split('/')[-1]
+        else:
+            return False
+        
 # For UUID <-> tinypid linking
     def resolveTinyPid(self, pid):
         query = "select $object from <#ri> where $object <info:fedora/fedora-system:def/model#label> '" + pid +"'"
@@ -198,4 +209,45 @@ class Risearch(object):
         else:
             return False
         
+    def getTriplesGraph(self, pid):
+        rdf  = Namespace("http://www.w3.org/1999/02/22-rdf-syntax-ns#")
+        ore  = Namespace("http://www.openarchives.org/ore/terms/")
+        dc  = Namespace("http://purl.org/dc/elements/1.1/")
+        dcterms  = Namespace("http://purl.org/dc/terms/")
+        owl  = Namespace("http://www.w3.org/2002/07/owl#")
+        rel = Namespace("info:fedora/fedora-system:def/relations-external#")
+        view = Namespace("info:fedora/fedora-system:def/view#")
+        model = Namespace("info:fedora/fedora-system:def/model#")
+        rdfs = Namespace("http://www.w3.org/2001/01/rdf-schema#")
         
+        bindings = { u"rdf": rdf, u"dc": dc, u"dcterms": dcterms, u'owl':owl, u'ore':ore, u'rel': rel, u'view': view, u'model':model, u'rdfs': rdfs }
+        
+        g = cg(identifier=pid)
+        for prefix in bindings:
+            g.bind(prefix, bindings[prefix])
+
+        s = Sink(g)
+        
+        # NTriples parser
+        p  = NTriplesParser(sink=s)
+
+        # Get the (pid, p, o) triples
+        query='<info:fedora/'+pid+'> * *'
+        ntriples = self.getTriples(query)
+        p.parsestring(ntriples)
+        
+        # Get the (s, p, pid) triples
+        query='* * <info:fedora/'+pid+'>'
+        ntriples = self.getTriples(query)
+        p.parsestring(ntriples)
+        
+        return g
+
+class Sink(object):
+    def __init__(self, g):
+        self.length = 0
+        self.g = g
+
+    def triple(self, s, p, o):
+        self.length += 1
+        self.g.add((s,p,o))

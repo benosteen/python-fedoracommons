@@ -39,11 +39,12 @@ import codecs, os
 
 from mimeTypes import *
 
+import mimetypes
+
 from xml.dom import minidom
 from xml.dom import Node
 
-# Metadata handlers
-from foxml import *
+from elementtree import ElementTree as ET
 
 class FedoraClient(object):
     def __init__(self, server='http://localhost:8080/fedora', username='fedoraAdmin', password='fedoraAdmin', version="3.0", use_UUID=False):
@@ -64,10 +65,9 @@ class FedoraClient(object):
         
         self.uuid_id_regex = re.compile('[A-Fa-f0-9]{8}-[A-Fa-f0-9]{4}-[A-Fa-f0-9]{4}-[A-Fa-f0-9]{4}-[A-Fa-f0-9]{12}')
         
-        self.fedora = Connection(self.server, self.username, password)
-        
         m = mimeTypes()
         self.mimetypes = m.getDictionary()
+        self.fedora = Connection(self.server, self.username, password)
         
         self.version = version
 
@@ -108,15 +108,18 @@ class FedoraClient(object):
         
         return pid
 
-    def create_UUID_Object(self, label=None, pid=None, namespace='demo'):
-        u = uuid4()
-        
-        pid = u.urn[4:]
+    def create_UUID_Object(self, label=None, pid=None, namespace='demo', params={}):
+        """ This method is designed to be called with either no parameters or just a label parameter.
+            Doing so will automatically create a new object, with a UUID pid. By calling the method with
+            the pid keywofrom elementtree import ElementTree as ETrd set, will force an attempt to create an object with the given pid instead."""
         if not label:
             label = self.getNextPID(namespace=namespace)
-            
-        params = {'label':label, 
-                  'namespace':'uuid'}
+
+        if not pid:
+            u = uuid4()
+            pid = u.urn[4:]
+            params['labelfrom elementtree import ElementTree as ET'] = label
+            params['namespace'] = 'uuid'
         
         resp = self.fedora.request_post("objects/"+pid, args=params)
         
@@ -149,7 +152,7 @@ class FedoraClient(object):
                 return False
         return uuid_pid
 
-    def getDatastream(self, pid, dsid):
+    def getDatastream(self, pid, dsid, params=None):
         # e.g http://localhost:8080/fedora/objects/test:02/datastreams/DC
         
         # Tinypid? or uuid?
@@ -157,18 +160,20 @@ class FedoraClient(object):
         if self.use_UUID:
             pid = self.resolve_Non_UUID_pid(pid) or pid
         
-        return self.fedora.request_get("objects/"+pid+"/datastreams/"+dsid)
+        return self.fedora.request_get("objects/"+pid+"/datastreams/"+dsid, args=params)
         
     def getDatastreamUrl(self, pid, dsid):
+        if self.use_UUID:
+            pid = self.resolve_Non_UUID_pid(pid) or pid
         return self.server + "/objects/"+pid+"/datastreams/"+dsid
         
-    def putString(self, pid, dsid, label, content, fake_filename=None):
+    def putString(self, pid, dsid, content, fake_filename=None, params=None):
         if self.use_UUID:
             pid = self.resolve_Non_UUID_pid(pid) or pid
         
-        return self.fedora.request_post("objects/"+pid+"/datastreams/"+dsid, args={'dsLabel':label}, body=content, filename=fake_filename)
+        return self.fedora.request_post("objects/"+pid+"/datastreams/"+dsid, args=params, body=content, filename=fake_filename)
         
-    def putFile(self, pid, dsid, label, filepath):
+    def putFile(self, pid, dsid, filepath, params=None):
         fn = open(filepath ,'r')
         content = fn.read()
         fn.close()
@@ -178,13 +183,45 @@ class FedoraClient(object):
         if self.use_UUID:
             pid = self.resolve_Non_UUID_pid(pid) or pid
         
-        return self.fedora.request_post("objects/"+pid+"/datastreams/"+dsid, args={'dsLabel':label}, body=content, filename=filename)
+        return self.fedora.request_post("objects/"+pid+"/datastreams/"+dsid, args=params, body=content, filename=filename)
     
-    def listDatastreams(self, pid):
+    def listDatastreams(self, pid, format='xml', params=None):
         if self.use_UUID:
             pid = self.resolve_Non_UUID_pid(pid) or pid
         
-        return self.fedora.request_get("objects/"+pid+"/datastreams", args={'format':'xml'})
+        namespace, id_number = pid.split(':')
+        
+        arg_list = {'format':'xml'}
+        if params and isinstance(params, dict):
+            arg_list.update(params)
+        if format=='python':
+            xml_list = self.fedora.request_get("objects/"+pid+"/datastreams", args=arg_list)
+            tree_list = ET.fromstring(xml_list)
+            dsid_list = tree_list.findall('datastream')
+            dsids = {}
+            for dsid in dsid_list:
+                datastream = {}
+                datastream['dsid'] = dsid.get('dsid')
+                datastream['label'] = dsid.get('label')
+                datastream['mimetype'] = dsid.get('mimeType')
+
+                # Choose a known file extension from the dictinary list or
+                # default to the 'possible_ending' variable. This is added to the
+                # dsid to form a download filename
+                # e.g.    dsid = MODS, mimetype = 'text/xml'
+                # mimetypes['text/xml'] = 'xml' so the filename is 'MODS.xml'
+                ext = self.mimetypes.get(datastream['mimetype'], None)
+                if not ext:
+                    datastream['winname'] = 'uuid_'+id_number+'-'+datastream['dsid'] + mimetypes.guess_extension(datastream['mimetype'])
+                else:
+                    datastream['winname'] = 'uuid_'+id_number+'-'+datastream['dsid'] + '.' + ext
+                
+                if datastream['dsid']:
+                    dsids[datastream['dsid']] = datastream
+            
+            return dsids
+        else:
+            return self.fedora.request_get("objects/"+pid+"/datastreams", args=arg_list)
     
     def retrieveObjectXML(self, pid):
         if self.use_UUID:
@@ -192,11 +229,19 @@ class FedoraClient(object):
         
         return self.fedora.request_get("objects/"+pid+"/objectXML", args={'format':'xml'})
         
-    def getObjectProfile(self, pid):
+    def getObjectProfile(self, pid, format='xml'):
         if self.use_UUID:
             pid = self.resolve_Non_UUID_pid(pid) or pid
-        
-        return self.fedora.request_get("objects/"+pid, args={'format':'xml'})
+            
+        if format=='python':
+            xml_list = self.fedora.request_get("objects/"+pid, args={'format':'xml'})
+            tree_list = ET.fromstring(xml_list)
+            profile = {}
+            for node in tree_list:
+                profile[node.tag] = node.text
+            return profile
+        else:
+            return self.fedora.request_get("objects/"+pid, args={'format':'xml'})
         
     def getObjectHistory(self, pid, date=None):
         if self.use_UUID:
