@@ -24,7 +24,7 @@ __version__ = '0.1'
 import sys, string, re, os, md5, sha, time
 import httplib, urlparse, urllib, urllib2, mimetypes
 
-from archive.lib.mimeTypes import *
+from mimeTypes import *
 
 from base64 import encodestring
 
