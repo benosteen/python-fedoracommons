@@ -241,12 +241,12 @@ class FedoraClient(object):
         
         return response
         
-    def addDatastream(self, id, dsid, altids, dsLabel, versionable, mimeType, formatURI, dsLocation, controlGroup, dsState, checksumType, checksum, logMessage):
-
+    def addDatastream(self, id, dsid, dsLabel, versionable, mimeType, formatURI, dsLocation, controlGroup, dsState, checksumType, checksum, logMessage):
+    
         request = addDatastreamRequest()
         request._pid = id
         request._MIMEType = mimeType
-        request._altIDs = altids
+        request._altIDs = ns0.ArrayOfString_Def('').pyclass
         request._checksum = checksum
         request._checksumType = checksumType
         request._dsLocation = dsLocation
@@ -383,7 +383,7 @@ class FedoraClient(object):
             # Bugger, either the file doesn't exist, or the permissions are wrong
             pass
         
-        return self.addDatastream(id, dsid, altids, dsLabel, versionable, mimeType, '', dsLocation, controlGroup, state, 'DISABLED', 'none', logMessage)
+        return self.addDatastream(id, dsid, dsLabel, versionable, mimeType, '', dsLocation, controlGroup, state, 'DISABLED', 'none', logMessage)
         
     def doesObjectExist_SOAP(self, pid):
         # Run a query to find the datastreams for this PID
